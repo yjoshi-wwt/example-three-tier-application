@@ -163,6 +163,9 @@ jobs:
       id-token: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -173,7 +176,14 @@ jobs:
         # Job name matches the naming convention in migration.tf:
         # "${app_name}-${environment}-migrate"
         run: |
-          gcloud run jobs execute \
-            "${{ env.APP_NAME }}-${{ needs.build.outputs.env }}-migrate" \
+          JOB_NAME="${{ env.APP_NAME }}-${{ needs.build.outputs.env }}-migrate"
+          echo "Starting migration job: $JOB_NAME"
+          
+          if ! gcloud run jobs execute "$JOB_NAME" \
             --region "${{ env.REGION }}" \
-            --wait
+            --wait; then
+            echo "❌ Migration job failed or timed out"
+            exit 1
+          fi
+          
+          echo "✅ Migration job completed successfully"
