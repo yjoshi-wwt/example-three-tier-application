@@ -39,7 +39,6 @@ export default async function Home() {
             >
               <form
                 action={async () => {
-                  'use server';
                   await toggleTask(task.id, !task.completed);
                 }}
               >
