@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  # ── Lint and build web frontend ──────────────────────────────────────────────
+
+  web:
+    name: Web - Lint & Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: src/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: src/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Build Next.js
+        run: npm run build
+
+  # ── Validate API ─────────────────────────────────────────────────────────────
+
+  api:
+    name: API - Validate
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: src/api
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: src/api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+  # ── Validate database migrations ─────────────────────────────────────────────
+
+  database:
+    name: Database - Validate Migrations
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: src/db
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: src/db/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+  # ── Validate Terraform infrastructure ────────────────────────────────────────
+
+  infrastructure:
+    name: Infrastructure - Terraform Validation
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: src/infrastructure
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.5"
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
