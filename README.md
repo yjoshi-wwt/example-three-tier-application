@@ -55,6 +55,17 @@ docker compose down -v
 docker compose up --build
 ```
 
+### Troubleshooting
+
+**Docker not running or not installed**
+- Ensure Docker Desktop is installed and running on your machine. On Linux, verify the Docker daemon is active with `sudo systemctl status docker`. If Docker is not installed, download it from [docker.com](https://www.docker.com/products/docker-desktop/).
+
+**Port conflicts (3000 or 3001 already in use)**
+- If you see errors like "bind: address already in use", another process is using port 3000 or 3001. Find and stop the conflicting process with `lsof -i :3000` or `lsof -i :3001` (macOS/Linux), or use `netstat -ano | findstr :3000` (Windows). Alternatively, modify the port mappings in `docker-compose.yml` to use different host ports.
+
+**Database initialization or resource issues**
+- If the `migrate` service fails or the database doesn't initialize, try a clean rebuild: `docker compose down -v && docker compose up --build`. This removes all volumes and starts fresh. Check logs with `docker compose logs postgres` or `docker compose logs migrate` to see detailed error messages. Ensure your system has sufficient disk space and memory for Docker.
+
 ### API endpoints
 
 The API is not exposed directly, but you can reach it through the web container or by temporarily mapping its port:
