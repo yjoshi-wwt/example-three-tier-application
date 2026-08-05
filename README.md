@@ -66,6 +66,63 @@ The API is not exposed directly, but you can reach it through the web container 
 | POST | `/tasks` | Create a task (`{ "title": "..." }`) |
 | PATCH | `/tasks/:id` | Update a task (`{ "completed": true }` or `{ "title": "..." }`) |
 
+## Local development
+
+Run each tier independently for faster development iteration.
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 22+ and npm
+- [PostgreSQL](https://www.postgresql.org/) 17+ running locally
+
+### Setup
+
+1. **Start PostgreSQL** (if not already running):
+
+   ```bash
+   # macOS with Homebrew
+   brew services start postgresql@17
+
+   # Or use Docker
+   docker run -d \
+     --name postgres \
+     -e POSTGRES_USER=app \
+     -e POSTGRES_PASSWORD=app \
+     -e POSTGRES_DB=app \
+     -p 5432:5432 \
+     postgres:17
+   ```
+
+2. **Run database migrations**:
+
+   ```bash
+   cd src/db
+   npm install
+   DATABASE_URL=postgres://app:app@localhost:5432/app npm run migrate
+   ```
+
+3. **Start the API server** (in a new terminal):
+
+   ```bash
+   cd src/api
+   npm install
+   DATABASE_URL=postgres://app:app@localhost:5432/app npm run dev
+   ```
+
+   The API will be available at `http://localhost:3001`.
+
+4. **Start the web frontend** (in a new terminal):
+
+   ```bash
+   cd src/web
+   npm install
+   npm run dev
+   ```
+
+   The frontend will be available at `http://localhost:3000`.
+
+The web frontend will automatically connect to the API at `http://localhost:3001`.
+
 ## Project structure
 
 ```
