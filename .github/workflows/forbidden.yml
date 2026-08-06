@@ -1,0 +1,16 @@
+name: Forbidden word
+
+on:
+  pull_request:
+
+jobs:
+  forbid:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: README must not contain the word BANANA
+        run: |
+          if grep -q "BANANA" README.md; then
+            echo "README.md contains the forbidden word BANANA. Remove the '## BANANA' section from README.md."
+            exit 1
+          fi
