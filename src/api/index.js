@@ -1,23 +1,27 @@
 const express = require('express');
 const db = require('./db');
+const { generalLimiter, writeLimiter, readLimiter } = require('./rateLimiter');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 
+// Apply general rate limiter to all routes
+app.use(generalLimiter);
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
 // GET /tasks — list all tasks
-app.get('/tasks', async (_req, res) => {
+app.get('/tasks', readLimiter, async (_req, res) => {
   const { rows } = await db.query('SELECT * FROM tasks ORDER BY created_at ASC');
   res.json(rows);
 });
 
 // POST /tasks — create a task
-app.post('/tasks', async (req, res) => {
+app.post('/tasks', writeLimiter, async (req, res) => {
   const { title } = req.body;
   if (!title || typeof title !== 'string' || !title.trim()) {
     return res.status(400).json({ error: 'title is required' });
@@ -30,7 +34,7 @@ app.post('/tasks', async (req, res) => {
 });
 
 // PATCH /tasks/:id — update a task (complete/uncomplete or rename)
-app.patch('/tasks/:id', async (req, res) => {
+app.patch('/tasks/:id', writeLimiter, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const { completed, title } = req.body;
 

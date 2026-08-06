@@ -66,6 +66,49 @@ The API is not exposed directly, but you can reach it through the web container 
 | POST | `/tasks` | Create a task (`{ "title": "..." }`) |
 | PATCH | `/tasks/:id` | Update a task (`{ "completed": true }` or `{ "title": "..." }`) |
 
+## Rate Limiting
+
+The API includes rate-limiting protection to prevent abuse and ensure fair usage. Rate limits are applied per IP address and vary by request type:
+
+### Rate Limit Configuration
+
+- **General limit**: 100 requests per 15 minutes (applies to all endpoints)
+- **Read operations (GET)**: 200 requests per 15 minutes (more lenient for read-heavy workloads)
+- **Write operations (POST, PATCH)**: 30 requests per 15 minutes (stricter to prevent data abuse)
+
+### Rate Limit Headers
+
+When rate-limited, the API returns HTTP 429 (Too Many Requests) with the following headers:
+
+- `RateLimit-Limit`: Maximum number of requests allowed in the window
+- `RateLimit-Remaining`: Number of requests remaining in the current window
+- `RateLimit-Reset`: Unix timestamp when the rate limit window resets
+
+### Adjusting Rate Limits
+
+To modify rate limits, edit `src/api/rateLimiter.js`:
+
+```javascript
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // Time window in milliseconds
+  max: 30,                   // Maximum requests per window
+  // ... other options
+});
+```
+
+- `windowMs`: Duration of the rate limit window (in milliseconds)
+- `max`: Maximum number of requests allowed per window per IP
+
+For example, to allow 60 write requests per 15 minutes:
+
+```javascript
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60, // Changed from 30 to 60
+  // ... rest of config
+});
+```
+
 ## Project structure
 
 ```
@@ -73,6 +116,7 @@ src/
 ├── api/            # Express REST API
 │   ├── index.js    # Route handlers
 │   ├── db.js       # PostgreSQL connection pool
+│   ├── rateLimiter.js # Rate-limiting middleware configuration
 │   └── Dockerfile
 ├── db/             # Database migrations
 │   ├── migrations/ # node-pg-migrate migration files
