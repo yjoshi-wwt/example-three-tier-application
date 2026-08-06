@@ -134,7 +134,3 @@ When running via Docker Compose the `migrate` service handles this automatically
 ## Build
 
 CI runs on every pull request.
-
-## BANANA
-
-Yellow fruit.
