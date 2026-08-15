@@ -130,3 +130,46 @@ DATABASE_URL=postgres://app:app@localhost:5432/app npx node-pg-migrate down
 ```
 
 When running via Docker Compose the `migrate` service handles this automatically on startup.
+
+## How to run the tests
+
+### Web (frontend)
+
+Lint the frontend code:
+
+```bash
+cd src/web
+npm run lint
+```
+
+### API
+
+The API currently has no tests configured. To add tests, configure a test runner (e.g., Jest or Mocha) in `src/api/package.json` and add test files.
+
+## Code style
+
+### Frontend
+
+The frontend uses **ESLint** with the Next.js configuration to enforce consistent code style. Run the linter with:
+
+```bash
+cd src/web
+npm run lint
+```
+
+The ESLint setup catches common issues like unused variables, missing dependencies, and React best practices.
+
+### API
+
+The API is written in **CommonJS** (Node.js `require`/`module.exports`) and follows simple Express patterns:
+
+- Route handlers are defined directly in `src/api/index.js`
+- Database queries use the connection pool from `src/api/db.js`
+- Error handling is kept straightforward with HTTP status codes
+
+### General conventions
+
+- **Comment the why, not the what**: Explain the reasoning behind a decision, not what the code does. The code itself shows what it does.
+- **Inline comments for non-obvious logic**: If a line or block is not immediately clear, add a comment explaining the intent.
+- **Match the existing style**: Follow the patterns already established in the file you are editing (imports, formatting, naming conventions).
+- **Keep changes focused**: Do not refactor unrelated code in the same change; it obscures the actual modification under review.
