@@ -2,78 +2,123 @@
 
 ## Overview
 
-This document summarizes the infrastructure architecture, local development setup, and GCP deployment configuration for the example-three-tier-application.
+This document provides a comprehensive summary of the three-tier application infrastructure, including the Docker Compose local development setup, technology stack with exact versions, API endpoints, and GCP Terraform configuration.
 
 ## Architecture
 
-The application follows a three-tier architecture with clear separation of concerns:
+The application follows a three-tier architecture with linear request flow:
 
 ```
 Browser → Web (Next.js :3000) → API (Express :3001) → PostgreSQL
 ```
 
-Each tier runs in its own Docker container and communicates via HTTP (frontend to API) or TCP (API to database).
+Each tier runs in its own Docker container and communicates over HTTP (frontend to API) or TCP (API to database).
 
-### Tier Breakdown
+## Technology Stack
 
-| Layer | Technology | Port | Location | Purpose |
-|-------|-----------|------|----------|---------|
-| Frontend | Next.js 16.2.9, React 19.2.4, Tailwind CSS 4 | 3000 | `src/web/` | User-facing web interface |
-| API | Express 5.2.1, Node.js 22 | 3001 | `src/api/` | REST API for task management |
-| Database | PostgreSQL 17 | 5432 | Docker / Cloud SQL | Persistent data storage |
-| Migrations | node-pg-migrate 8.0.4 | N/A | `src/db/` | Schema versioning |
-| Infrastructure | Terraform ~5.0 (Google), ~3.0 (Random) | N/A | `src/infrastructure/` | GCP resource provisioning |
+### Frontend Tier
+- **Framework**: Next.js 16.2.9
+- **Runtime**: Node.js 22 (via Docker base image)
+- **UI Library**: React 19.2.4
+- **Styling**: Tailwind CSS 4.x
+- **Type System**: TypeScript 5.x
+- **Linting**: ESLint 9.x with Next.js config
+- **Additional**: React DOM 19.2.4
 
-## Local Development with Docker Compose
+### API Tier
+- **Framework**: Express 5.2.1
+- **Runtime**: Node.js 22
+- **Database Driver**: pg 8.21.0
+- **Type System**: CommonJS (no TypeScript)
 
-### Prerequisites
+### Database Tier
+- **Database**: PostgreSQL 17 (Alpine Linux variant)
+- **Migration Tool**: node-pg-migrate 8.0.4
+- **Database Driver**: pg 8.21.0
 
-- Docker Desktop (or Docker Engine + Compose plugin)
-- No need to install Node.js, PostgreSQL, or other dependencies locally
+### Infrastructure
+- **IaC Tool**: Terraform ~1.5
+- **Cloud Provider**: Google Cloud Platform (GCP)
+- **Terraform Providers**:
+  - Google Provider: ~5.0
+  - Random Provider: ~3.0
+- **State Backend**: Google Cloud Storage (GCS)
 
-### Starting the Stack
+## Docker Compose Setup
 
-```bash
-docker compose up --build
+### Local Development Orchestration
+
+The `docker-compose.yml` file defines four services that start in dependency order:
+
+```yaml
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: ./src/db
+    environment:
+      DATABASE_URL: postgres://app:app@postgres:5432/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  api:
+    build:
+      context: ./src/api
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgres://app:app@postgres:5432/app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "3001"
+
+  web:
+    build:
+      context: ./src/web
+    environment:
+      PORT: 3000
+      API_URL: http://api:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
 ```
 
-This command orchestrates four services in dependency order:
+**Startup Order**:
+1. **postgres** — PostgreSQL 17 database with health check
+2. **migrate** — Runs `node-pg-migrate up` to apply schema migrations, then exits
+3. **api** — Express API on port 3001 (internal only, not exposed to host)
+4. **web** — Next.js frontend on port 3000 (exposed to host)
 
-1. **postgres** — PostgreSQL 17 Alpine image
-   - Environment: `POSTGRES_DB=app`, `POSTGRES_USER=app`, `POSTGRES_PASSWORD=app`
-   - Volume: `postgres_data:/var/lib/postgresql/data` (persists between runs)
-   - Health check: `pg_isready -U app -d app` (5s interval, 5s timeout, 5 retries)
-   - Waits for: None (starts first)
+**Database Configuration**:
+- Database: `app`
+- User: `app`
+- Password: `app`
+- Connection String: `postgres://app:app@postgres:5432/app`
+- Persistent Volume: `postgres_data`
 
-2. **migrate** — Database schema migration runner
-   - Builds from: `src/db/Dockerfile`
-   - Environment: `DATABASE_URL=postgres://app:app@postgres:5432/app`
-   - Runs: `node-pg-migrate up` to apply all pending migrations
-   - Waits for: `postgres` service to be healthy
-   - Exits after: Migrations complete (does not stay running)
-
-3. **api** — Express REST API server
-   - Builds from: `src/api/Dockerfile`
-   - Environment: `PORT=3001`, `DATABASE_URL=postgres://app:app@postgres:5432/app`
-   - Exposes: Port 3001 (internal only, not mapped to host)
-   - Waits for: `migrate` service to complete successfully
-   - Runs: `node index.js` (listens on port 3001)
-
-4. **web** — Next.js frontend server
-   - Builds from: `src/web/Dockerfile`
-   - Environment: `PORT=3000`, `API_URL=http://api:3001`
-   - Ports: `3000:3000` (mapped to host)
-   - Waits for: `api` service to be running
-   - Runs: `next start` (listens on port 3000)
-
-### Accessing the Application
-
-- **Frontend**: http://localhost:3000
-- **API**: Not directly exposed; accessible through the web container or by temporarily mapping port 3001
-
-### Stopping and Cleanup
+### Running Locally
 
 ```bash
+# Start the stack
+docker compose up --build
+
 # Stop containers (keeps postgres_data volume)
 docker compose down
 
@@ -84,419 +129,471 @@ docker compose down -v
 docker compose up --build
 ```
 
-## Technology Stack with Exact Versions
-
-### Frontend (src/web/)
-
-**Package.json Dependencies:**
-- `next`: 16.2.9
-- `react`: 19.2.4
-- `react-dom`: 19.2.4
-
-**Package.json Dev Dependencies:**
-- `@tailwindcss/postcss`: ^4 (latest 4.x)
-- `@types/node`: ^20
-- `@types/react`: ^19
-- `@types/react-dom`: ^19
-- `eslint`: ^9
-- `eslint-config-next`: 16.2.9
-- `tailwindcss`: ^4 (latest 4.x)
-- `typescript`: ^5
-
-**Package-lock.json Verified Versions:**
-- `next`: 16.2.9 (resolved from npm registry)
-- `react`: 19.2.4 (resolved from npm registry)
-- `react-dom`: 19.2.4 (resolved from npm registry)
-
-### API (src/api/)
-
-**Package.json Dependencies:**
-- `express`: ^5.2.1
-- `pg`: ^8.21.0
-
-**Package-lock.json Verified Versions:**
-- `express`: 5.2.1 (resolved: https://registry.npmjs.org/express/-/express-5.2.1.tgz)
-  - Integrity: sha512-hIS4idWWai69NezIdRt2xFVofaF4j+6INOpJlVOLDO8zXGpUVEVzIYk12UUi2JzjEzWL3IOAxcTubgz9Po0yXw==
-- `pg`: 8.21.0 (resolved: https://registry.npmjs.org/pg/-/pg-8.21.0.tgz)
-  - Integrity: sha512-AUP1EYJuHraQGsVoCQVIcM7TEJVGtDzxWtGFZd8rds9d+CCXlU5Js1rYgfLNvxy9iJrpHjGrRjoi/3BT9fRyiA==
-  - Dependencies: pg-connection-string ^2.13.0, pg-pool ^3.14.0, pg-protocol ^1.14.0, pg-types 2.2.0, pgpass 1.0.5
-
-### Database Migrations (src/db/)
-
-**Package.json Dependencies:**
-- `node-pg-migrate`: ^8.0.4
-- `pg`: ^8.21.0
-
-**Package-lock.json Verified Versions:**
-- `node-pg-migrate`: 8.0.4 (resolved: https://registry.npmjs.org/node-pg-migrate/-/node-pg-migrate-8.0.4.tgz)
-  - Integrity: sha512-HTlJ6fOT/2xHhAUtsqSN85PGMAqSbfGJNRwQF8+ZwQ1+sVGNUTl/ZGEshPsOI3yV22tPIyHXrKXr3S0JxeYLrg==
-  - Dependencies: glob ~11.1.0, yargs ~17.7.0
-- `pg`: 8.21.0 (same as API tier)
-
-### Database
-
-- **PostgreSQL**: 17 (Alpine image: `postgres:17-alpine`)
-- **Default credentials**: user=`app`, password=`app`, database=`app`
-
-### Infrastructure (Terraform)
-
-**Terraform Version**: >= 1.5
-
-**Required Providers:**
-- `google`: ~> 5.0 (Hashicorp Google provider)
-- `random`: ~> 3.0 (Hashicorp Random provider)
-
-**Backend**: Google Cloud Storage (GCS)
-- Bucket and prefix supplied at init time via `-backend-config` flags
-- Example: `terraform init -backend-config="bucket=my-tf-state" -backend-config="prefix=terraform/dev"`
-
 ## API Endpoints
 
-The Express API exposes the following REST endpoints:
+The API is not exposed directly to the host in Docker Compose; all external traffic goes through the web tier. However, the following endpoints are available internally:
 
 | Method | Path | Description | Request Body | Response |
 |--------|------|-------------|--------------|----------|
-| GET | `/health` | Health check | None | `{ "status": "ok" }` |
-| GET | `/tasks` | List all tasks | None | Array of task objects, ordered by creation time |
-| POST | `/tasks` | Create a new task | `{ "title": "string" }` | Created task object (201) |
-| PATCH | `/tasks/:id` | Update a task | `{ "completed": boolean }` or `{ "title": "string" }` | Updated task object (200) or 404 if not found |
+| GET | `/health` | Health check | N/A | `{ "status": "ok" }` |
+| GET | `/tasks` | List all tasks | N/A | Array of task objects, ordered by `created_at` ASC |
+| POST | `/tasks` | Create a task | `{ "title": "..." }` | Created task object (status 201) |
+| PATCH | `/tasks/:id` | Update a task | `{ "completed": true }` or `{ "title": "..." }` | Updated task object or 404 if not found |
 
-### Task Object Schema
-
-```json
-{
-  "id": 1,
-  "title": "Example task",
-  "completed": false,
-  "created_at": "2024-06-15T12:34:56.000Z"
-}
-```
-
-### Input Validation
-
-- **POST /tasks**: `title` must be a non-empty string (trimmed)
-- **PATCH /tasks/:id**: Supports partial updates; only provided fields are changed
-- **Error responses**: Minimal error handling; database errors may propagate as unhandled exceptions
+**API Implementation** (`src/api/index.js`):
+- Listens on port 3001 (configurable via `PORT` env var)
+- Uses `express.json()` middleware for request parsing
+- Connects to PostgreSQL via `pg` connection pool
+- Minimal error handling; database errors propagate as unhandled exceptions
+- Input validation: POST `/tasks` requires non-empty string `title`
+- Partial updates: PATCH endpoint allows updating only provided fields
 
 ## Database Schema
 
 ### Migrations
 
-Migrations are stored in `src/db/migrations/` and use node-pg-migrate format.
+Database migrations are managed by `node-pg-migrate` and located in `src/db/migrations/`.
 
-**Migration 1718500000000_initial-schema.js:**
-- Creates `users` table with columns: `id` (serial PK), `email` (varchar 255, unique), `created_at` (timestamp, default now())
-
-**Migration 1718500001000_create-tasks.js:**
-- Creates `tasks` table with columns:
-  - `id` (serial, primary key)
-  - `title` (varchar 500, not null)
-  - `completed` (boolean, not null, default false)
-  - `created_at` (timestamp, not null, default now())
-
-### Running Migrations
-
-**Locally (via Docker Compose):**
-- Automatic: The `migrate` service runs `node-pg-migrate up` on startup
-
-**Manually:**
-```bash
-cd src/db
-DATABASE_URL=postgres://app:app@localhost:5432/app npx node-pg-migrate up
+**Migration 1: Initial Schema** (`1718500000000_initial-schema.js`)
+```javascript
+exports.up = (pgm) => {
+  pgm.createTable('users', {
+    id: { type: 'serial', primaryKey: true },
+    email: { type: 'varchar(255)', notNull: true, unique: true },
+    created_at: { type: 'timestamp', notNull: true, default: pgm.func('now()') },
+  });
+};
 ```
 
-**Rollback:**
-```bash
-DATABASE_URL=postgres://app:app@localhost:5432/app npx node-pg-migrate down
+**Migration 2: Create Tasks Table** (`1718500001000_create-tasks.js`)
+```javascript
+exports.up = (pgm) => {
+  pgm.createTable('tasks', {
+    id: { type: 'serial', primaryKey: true },
+    title: { type: 'varchar(500)', notNull: true },
+    completed: { type: 'boolean', notNull: true, default: false },
+    created_at: { type: 'timestamp', notNull: true, default: pgm.func('now()') },
+  });
+};
 ```
 
-## GCP Deployment with Terraform
+### Tables
+
+**users**
+- `id` (serial, primary key)
+- `email` (varchar(255), not null, unique)
+- `created_at` (timestamp, not null, default: now())
+
+**tasks**
+- `id` (serial, primary key)
+- `title` (varchar(500), not null)
+- `completed` (boolean, not null, default: false)
+- `created_at` (timestamp, not null, default: now())
+
+## GCP Terraform Configuration
 
 ### Overview
 
-The Terraform configuration in `src/infrastructure/` provisions a complete three-tier application on Google Cloud Platform:
+The Terraform configuration in `src/infrastructure/` provisions a complete three-tier application on Google Cloud Platform with the following components:
 
-- **VPC Network**: Private network with subnet and VPC Access Connector
-- **Cloud SQL**: PostgreSQL 17 instance (private IP, optional backups)
-- **Cloud Run**: Two services (API and Web frontend)
-- **Secret Manager**: Stores database connection URL
-- **Service Accounts**: IAM roles for Cloud Run services
-- **Load Balancing**: Internal load balancer for API, public load balancer for Web
+- VPC network and subnet
+- Cloud SQL PostgreSQL 17 instance (private IP)
+- Cloud Run services for API and web frontend
+- Secret Manager secret for database URL
+- Service accounts and IAM bindings
+- VPC Access Connector for Cloud Run to reach the VPC
 
-### Required Variables
+### Terraform Files
 
-Create `terraform.tfvars` (copy from `terraform.tfvars.example`):
+#### `main.tf`
 
+**Terraform Configuration**:
 ```hcl
-project_id  = "my-gcp-project-id"
-region      = "us-central1"
-app_name    = "todo"
-environment = "dev"
-db_tier     = "db-f1-micro"
-api_image   = "gcr.io/my-gcp-project-id/api:latest"
-web_image   = "gcr.io/my-gcp-project-id/web:latest"
-db_image    = "gcr.io/my-gcp-project-id/db:latest"
+terraform {
+  required_version = ">= 1.5"
+
+  backend "gcs" {
+    # bucket and prefix are supplied at init time via -backend-config flags
+  }
+
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 5.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
+  }
+}
 ```
 
-### Optional Variables
+**VPC Configuration**:
+- Network: `${app_name}-${environment}-vpc` (auto_create_subnetworks: false)
+- Subnet: `${app_name}-${environment}-subnet` with CIDR `10.0.0.0/24` (default)
+- Private IP Google Access: enabled
+- VPC Peering for Cloud SQL: configured via `google_compute_global_address` and `google_service_networking_connection`
+- VPC Access Connector: `${app_name}-${environment}-connector` with CIDR `10.0.1.0/28` (default), min 2 instances, max 10 instances, machine type `e2-micro`
+
+**Cloud SQL Configuration**:
+- Instance Name: `${app_name}-${environment}-postgres`
+- Database Version: PostgreSQL 17
+- Database Name: `app`
+- Database User: `app` (password auto-generated, 32 chars, no special chars)
+- Machine Tier: `db-f1-micro` (default, configurable)
+- Availability: ZONAL (dev/staging) or REGIONAL (prod)
+- Disk: SSD with autoresize enabled
+- Backup: enabled only in prod, starts at 03:00 UTC
+- Max Connections: 100
+- Deletion Protection: enabled only in prod
+- IP Configuration: private IP only, no public IP
+
+**Secret Manager**:
+- Secret ID: `${app_name}-${environment}-db-url`
+- Secret Value: `postgres://app:${password}@${private_ip}:5432/app`
+- Replication: auto
+
+**Service Account**:
+- Account ID: `${app_name}-${environment}-run`
+- Display Name: `${app_name} Cloud Run (${environment})`
+- IAM Roles:
+  - `roles/cloudsql.client` — access to Cloud SQL
+  - `roles/secretmanager.secretAccessor` — access to database URL secret
+
+**Cloud Run: API Service**:
+- Name: `${app_name}-${environment}-api`
+- Ingress: `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` (internal only)
+- Scaling: min 0 (dev/staging) or 1 (prod), max 10 (configurable)
+- VPC Access: connector with `ALL_TRAFFIC` egress
+- Container Port: 3001
+- Environment Variables:
+  - `DATABASE_URL` — from Secret Manager (latest version)
+  - `PORT` — 3001
+- Resources: 1 CPU, 512 MB memory
+- Startup Probe: GET `/health` on port 3001, initial delay 5s, period 5s, failure threshold 10
+- Liveness Probe: GET `/health` on port 3001, period 30s, failure threshold 3
+
+**Cloud Run: Web Service**:
+- Name: `${app_name}-${environment}-web`
+- Ingress: `INGRESS_TRAFFIC_ALL` (public)
+- Scaling: min 0 (dev/staging) or 1 (prod), max 10 (configurable)
+- VPC Access: connector with `PRIVATE_RANGES_ONLY` egress
+- Container Port: 3000
+- Environment Variables:
+  - `PORT` — 3000
+  - `API_URL` — from API service URI
+- Resources: 1 CPU, 512 MB memory
+- Startup Probe: GET `/` on port 3000, initial delay 10s, period 5s, failure threshold 10
+- IAM: `roles/run.invoker` for `allUsers` (public access)
+
+**Service Account Permissions**:
+- Web service account can invoke API service (internal traffic)
+- Web service account has Cloud SQL client role
+- Web service account can access database URL secret
+
+#### `variables.tf`
+
+**Input Variables**:
 
 ```hcl
-subnet_cidr       = "10.0.0.0/24"        # Default: 10.0.0.0/24
-connector_cidr    = "10.0.1.0/28"        # Default: 10.0.1.0/28 (must be /28)
-api_max_instances = 10                   # Default: 10
-web_max_instances = 10                   # Default: 10
+variable "project_id" {
+  description = "GCP project ID"
+  type        = string
+}
+
+variable "region" {
+  description = "GCP region for all resources"
+  type        = string
+  default     = "us-central1"
+}
+
+variable "app_name" {
+  description = "Application name used as a prefix for resource names"
+  type        = string
+  default     = "todo"
+}
+
+variable "environment" {
+  description = "Deployment environment (dev, staging, prod)"
+  type        = string
+  default     = "dev"
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "environment must be one of: dev, staging, prod"
+  }
+}
+
+variable "subnet_cidr" {
+  description = "CIDR range for the main subnet"
+  type        = string
+  default     = "10.0.0.0/24"
+}
+
+variable "connector_cidr" {
+  description = "CIDR range for the VPC Access Connector (must be /28, not overlapping subnet_cidr)"
+  type        = string
+  default     = "10.0.1.0/28"
+}
+
+variable "db_tier" {
+  description = "Cloud SQL machine tier"
+  type        = string
+  default     = "db-f1-micro"
+}
+
+variable "api_image" {
+  description = "Container image for the API service (e.g. gcr.io/PROJECT/api:TAG)"
+  type        = string
+}
+
+variable "web_image" {
+  description = "Container image for the web service (e.g. gcr.io/PROJECT/web:TAG)"
+  type        = string
+}
+
+variable "api_max_instances" {
+  description = "Maximum number of Cloud Run instances for the API"
+  type        = number
+  default     = 10
+}
+
+variable "web_max_instances" {
+  description = "Maximum number of Cloud Run instances for the web frontend"
+  type        = number
+  default     = 10
+}
 ```
 
-### Resource Breakdown
+#### `outputs.tf`
 
-#### VPC & Networking
+**Output Values**:
 
-- **google_compute_network.main**: VPC network (no auto-created subnets)
-- **google_compute_subnetwork.main**: Subnet with CIDR `10.0.0.0/24` (configurable)
-- **google_compute_global_address.private_services**: Reserved IP range for VPC peering (16-bit prefix)
-- **google_service_networking_connection.private_services**: Enables private services access for Cloud SQL
-- **google_vpc_access_connector.main**: Allows Cloud Run to reach the VPC
-  - Machine type: `e2-micro`
-  - Min instances: 2
-  - Max instances: 10
-  - CIDR: `10.0.1.0/28` (configurable, must not overlap subnet)
+```hcl
+output "web_url" {
+  description = "Public URL of the web frontend"
+  value       = google_cloud_run_v2_service.web.uri
+}
 
-#### Cloud SQL
+output "api_url" {
+  description = "URL of the API service"
+  value       = google_cloud_run_v2_service.api.uri
+}
 
-- **google_sql_database_instance.main**: PostgreSQL 17 instance
-  - Tier: `db-f1-micro` (configurable, use `db-g1-small` or `db-custom-*` for production)
-  - Availability: ZONAL (dev/staging) or REGIONAL (prod)
-  - Disk: SSD, auto-resize enabled
-  - Max connections: 100
-  - Backups: Enabled only in prod, starts at 03:00 UTC
-  - Deletion protection: Enabled only in prod
-  - Private IP: Connected to VPC, no public IP
+output "db_private_ip" {
+  description = "Private IP address of the Cloud SQL instance"
+  value       = google_sql_database_instance.main.private_ip_address
+}
 
-- **google_sql_database.app**: Database named `app`
+output "db_instance_name" {
+  description = "Cloud SQL instance connection name"
+  value       = google_sql_database_instance.main.connection_name
+}
 
-- **google_sql_user.app**: Database user `app` with randomly generated 32-character password (no special chars)
+output "vpc_name" {
+  description = "Name of the VPC network"
+  value       = google_compute_network.main.name
+}
 
-- **random_password.db**: Generates secure password for database user
+output "service_account_email" {
+  description = "Email of the Cloud Run service account"
+  value       = google_service_account.cloud_run.email
+}
 
-#### Secret Manager
+output "db_url_secret_id" {
+  description = "Secret Manager secret ID holding the DATABASE_URL"
+  value       = google_secret_manager_secret.db_url.secret_id
+  sensitive   = true
+}
+```
 
-- **google_secret_manager_secret.db_url**: Stores database connection URL
-  - Secret ID: `{app_name}-{environment}-db-url` (e.g., `todo-dev-db-url`)
-  - Replication: Automatic
+#### `migration.tf`
 
-- **google_secret_manager_secret_version.db_url**: Secret version containing connection string
-  - Format: `postgres://app:{password}@{private_ip}:5432/app`
+**Cloud Run Job for Database Migrations**:
 
-#### Service Account & IAM
+```hcl
+variable "db_image" {
+  description = "Container image for the db migration job (e.g. gcr.io/PROJECT/db:TAG)"
+  type        = string
+}
 
-- **google_service_account.cloud_run**: Service account for Cloud Run services
-  - Account ID: `{app_name}-{environment}-run` (e.g., `todo-dev-run`)
+resource "google_cloud_run_v2_job" "migrate" {
+  name     = "${local.name_prefix}-migrate"
+  location = var.region
 
-- **google_project_iam_member.cloud_run_sql**: Grants `roles/cloudsql.client` to service account
+  template {
+    template {
+      service_account = google_service_account.cloud_run.email
 
-- **google_secret_manager_secret_iam_member.cloud_run_db_url**: Grants `roles/secretmanager.secretAccessor` to service account
+      max_retries = 3
 
-#### Cloud Run: API Service
+      vpc_access {
+        connector = google_vpc_access_connector.main.id
+        egress    = "ALL_TRAFFIC"
+      }
 
-- **google_cloud_run_v2_service.api**: Express API service
-  - Name: `{app_name}-{environment}-api` (e.g., `todo-dev-api`)
-  - Ingress: `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` (not publicly accessible)
-  - Min instances: 1 (prod) or 0 (dev/staging)
-  - Max instances: 10 (configurable)
-  - CPU: 1
-  - Memory: 512Mi
-  - Container port: 3001
-  - Environment variables:
-    - `DATABASE_URL`: Injected from Secret Manager
-    - `PORT`: 3001
-  - Startup probe: GET `/health` (5s initial delay, 5s period, 10 retries)
-  - Liveness probe: GET `/health` (30s period, 3 retries)
-  - VPC Access: Connector with `ALL_TRAFFIC` egress
+      containers {
+        image = var.db_image
 
-#### Cloud Run: Web Service
+        env {
+          name = "DATABASE_URL"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_url.secret_id
+              version = "latest"
+            }
+          }
+        }
 
-- **google_cloud_run_v2_service.web**: Next.js frontend service
-  - Name: `{app_name}-{environment}-web` (e.g., `todo-dev-web`)
-  - Ingress: `INGRESS_TRAFFIC_ALL` (publicly accessible)
-  - Min instances: 1 (prod) or 0 (dev/staging)
-  - Max instances: 10 (configurable)
-  - CPU: 1
-  - Memory: 512Mi
-  - Container port: 3000
-  - Environment variables:
-    - `PORT`: 3000
-    - `API_URL`: Injected from API service URI
-  - Startup probe: GET `/` (10s initial delay, 5s period, 10 retries)
-  - VPC Access: Connector with `PRIVATE_RANGES_ONLY` egress
-  - Depends on: API service (waits for API to be deployed first)
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "256Mi"
+          }
+        }
+      }
+    }
+  }
+}
+```
 
-#### IAM Bindings
+**Purpose**: One-off Cloud Run Job that runs database migrations before deploying the API. Executed manually or as part of CI/CD pipeline:
+```bash
+gcloud run jobs execute ${app_name}-${environment}-migrate --region ${region} --wait
+```
 
-- **google_cloud_run_v2_service_iam_member.web_public**: Allows unauthenticated access to web service
-  - Role: `roles/run.invoker`
-  - Member: `allUsers`
+### Deployment Variables
 
-- **google_cloud_run_v2_service_iam_member.api_invoker**: Allows web service to invoke API
-  - Role: `roles/run.invoker`
-  - Member: Service account email
+**Required at `terraform apply` time**:
+- `project_id` — GCP project ID
+- `api_image` — Container image URI for API (e.g., `gcr.io/PROJECT/api:TAG`)
+- `web_image` — Container image URI for web (e.g., `gcr.io/PROJECT/web:TAG`)
+- `db_image` — Container image URI for migrations (e.g., `gcr.io/PROJECT/db:TAG`)
 
-#### Cloud Run Job: Database Migrations
+**Optional (with defaults)**:
+- `region` — GCP region (default: `us-central1`)
+- `app_name` — Application name prefix (default: `todo`)
+- `environment` — Deployment environment (default: `dev`, must be one of: dev, staging, prod)
+- `subnet_cidr` — Subnet CIDR (default: `10.0.0.0/24`)
+- `connector_cidr` — VPC Access Connector CIDR (default: `10.0.1.0/28`)
+- `db_tier` — Cloud SQL machine tier (default: `db-f1-micro`)
+- `api_max_instances` — Max Cloud Run instances for API (default: 10)
+- `web_max_instances` — Max Cloud Run instances for web (default: 10)
 
-- **google_cloud_run_v2_job.migrate**: One-off job for running database migrations
-  - Name: `{app_name}-{environment}-migrate` (e.g., `todo-dev-migrate`)
-  - Image: `db_image` variable
-  - Max retries: 3
-  - CPU: 1
-  - Memory: 256Mi
-  - Environment: `DATABASE_URL` from Secret Manager
-  - VPC Access: Connector with `ALL_TRAFFIC` egress
-  - Execute manually: `gcloud run jobs execute todo-dev-migrate --region us-central1 --wait`
+### Terraform State Management
 
-### Outputs
-
-After `terraform apply`, retrieve outputs with:
+State is stored in Google Cloud Storage (GCS) with backend configuration supplied at init time:
 
 ```bash
-terraform output web_url          # Public URL of web frontend
-terraform output api_url          # URL of API service
-terraform output db_private_ip    # Private IP of Cloud SQL instance
-terraform output db_instance_name # Cloud SQL connection name
-terraform output vpc_name         # VPC network name
-terraform output service_account_email  # Service account email
-terraform output db_url_secret_id # Secret Manager secret ID (sensitive)
+terraform init \
+  -backend-config="bucket=my-terraform-state-bucket" \
+  -backend-config="prefix=terraform/dev"
 ```
 
-### Deployment Workflow
+## CI/CD Pipeline
 
-1. **Build and push container images:**
-   ```bash
-   docker build -t gcr.io/$PROJECT/api:latest ./src/api
-   docker build -t gcr.io/$PROJECT/web:latest ./src/web
-   docker build -t gcr.io/$PROJECT/db:latest ./src/db
-   docker push gcr.io/$PROJECT/api:latest
-   docker push gcr.io/$PROJECT/web:latest
-   docker push gcr.io/$PROJECT/db:latest
-   ```
+The `.github/workflows/deploy.yml` workflow automates building, pushing, and deploying the application:
 
-2. **Initialize Terraform:**
-   ```bash
-   cd src/infrastructure
-   terraform init -backend-config="bucket=my-tf-state" -backend-config="prefix=terraform/dev"
-   ```
+### Workflow Stages
 
-3. **Plan and apply:**
-   ```bash
-   terraform plan -var-file=terraform.tfvars
-   terraform apply -var-file=terraform.tfvars
-   ```
+**1. Build & Push Images**
+- Authenticates to GCP using Workload Identity Federation
+- Configures Docker for GCR (Google Container Registry)
+- Builds and pushes three images:
+  - `gcr.io/${PROJECT}/api:${SHA}` and `:latest`
+  - `gcr.io/${PROJECT}/web:${SHA}` and `:latest`
+  - `gcr.io/${PROJECT}/db:${SHA}` and `:latest`
+- Uses Docker layer caching for faster builds
 
-4. **Run database migrations:**
-   ```bash
-   gcloud run jobs execute todo-dev-migrate --region us-central1 --wait
-   ```
+**2. Terraform Apply**
+- Initializes Terraform with GCS backend
+- Runs `terraform plan` and `terraform apply`
+- Passes image URIs and environment variables to Terraform
 
-5. **Access the application:**
-   ```bash
-   terraform output web_url
-   ```
+**3. Database Migrations**
+- Executes the Cloud Run migration job
+- Waits for completion before considering deployment done
 
-## CI/CD Pipeline (.github/workflows/deploy.yml)
+### Trigger Conditions
 
-The GitHub Actions workflow automates building, pushing, and deploying to GCP:
+- **Automatic**: Push to `main` branch
+- **Manual**: Workflow dispatch with environment selection (dev, staging, prod)
 
-### Trigger Events
+### Required Secrets
 
-- **Push to main branch**: Deploys to `dev` environment
-- **Manual workflow dispatch**: Choose environment (dev, staging, prod)
+- `GCP_WORKLOAD_IDENTITY_PROVIDER` — Workload Identity Provider resource name
+- `GCP_SERVICE_ACCOUNT` — Service account email for Workload Identity
+- `GCP_PROJECT_ID` — GCP project ID
+- `TF_STATE_BUCKET` — GCS bucket for Terraform state
 
-### Jobs
+## Dependency Versions Summary
 
-1. **build**: Build and push container images to GCR
-   - Authenticates to GCP via Workload Identity Federation
-   - Builds API, Web, and DB images with Docker Buildx
-   - Pushes to `gcr.io/{project}/{service}:{sha}` and `:latest`
-   - Uses layer caching for faster builds
+### Frontend (Next.js)
+- **next**: 16.2.9
+- **react**: 19.2.4
+- **react-dom**: 19.2.4
+- **tailwindcss**: 4.x (dev)
+- **@tailwindcss/postcss**: 4.x (dev)
+- **typescript**: 5.x (dev)
+- **eslint**: 9.x (dev)
+- **eslint-config-next**: 16.2.9 (dev)
+- **@types/node**: 20.x (dev)
+- **@types/react**: 19.x (dev)
+- **@types/react-dom**: 19.x (dev)
 
-2. **infrastructure**: Provision/update GCP resources with Terraform
-   - Depends on: `build` job
-   - Initializes Terraform with GCS backend
-   - Runs `terraform plan` and `terraform apply`
-   - Passes image URIs from build job
+### API (Express)
+- **express**: 5.2.1
+- **pg**: 8.21.0
 
-3. **migrate**: Run database migrations on Cloud Run Job
-   - Depends on: `build` and `infrastructure` jobs
-   - Executes the migration job and waits for completion
+### Database Migrations
+- **node-pg-migrate**: 8.0.4
+- **pg**: 8.21.0
 
-### Environment Variables
+### Infrastructure
+- **Terraform**: ~1.5
+- **Google Provider**: ~5.0
+- **Random Provider**: ~3.0
 
-- `REGION`: `us-central1`
-- `APP_NAME`: `todo`
+## Key Design Decisions
 
-### Secrets Required
+1. **Private Database**: Cloud SQL instance uses private IP only, accessible only from Cloud Run via VPC Access Connector
+2. **Environment-Based Scaling**: Production uses minimum 1 instance (always running); dev/staging use minimum 0 (scales to zero)
+3. **Secrets Management**: Database URL stored in Secret Manager, injected at runtime
+4. **Internal API**: API service is internal-only; all external traffic routes through web frontend
+5. **Migrations as Job**: Database migrations run as a separate Cloud Run Job, decoupled from API deployment
+6. **Terraform State in GCS**: State stored remotely with environment-specific prefixes
+7. **Docker Layer Caching**: CI/CD uses registry caching for faster builds
 
-- `GCP_WORKLOAD_IDENTITY_PROVIDER`: Workload Identity Provider resource name
-- `GCP_SERVICE_ACCOUNT`: Service account email for GitHub Actions
-- `GCP_PROJECT_ID`: GCP project ID
-- `TF_STATE_BUCKET`: GCS bucket for Terraform state
+## Running Locally vs. Deploying to GCP
 
-## Development Conventions
+### Local Development
+```bash
+docker compose up --build
+# Access at http://localhost:3000
+```
 
-### Migrations
+### GCP Deployment
+```bash
+cd src/infrastructure
+terraform init -backend-config="bucket=..." -backend-config="prefix=..."
+terraform apply \
+  -var="project_id=..." \
+  -var="api_image=gcr.io/.../api:TAG" \
+  -var="web_image=gcr.io/.../web:TAG" \
+  -var="db_image=gcr.io/.../db:TAG"
+```
 
-- **Append-only**: Never edit an existing migration file; create a new one
-- **Naming**: Use Unix timestamp prefix (e.g., `1718500000000_description.js`)
-- **Format**: Use node-pg-migrate API (`pgm.createTable`, `pgm.dropTable`, etc.)
-
-### Environment Variables
-
-All configuration is passed via environment variables; no hardcoded values:
-
-| Service | Variable | Default | Purpose |
-|---------|----------|---------|---------|
-| API | `PORT` | 3001 | Server port |
-| API | `DATABASE_URL` | None (required) | PostgreSQL connection string |
-| Web | `PORT` | 3000 | Server port |
-| Web | `API_URL` | `http://localhost:3001` | API endpoint URL |
-| DB | `DATABASE_URL` | None (required) | PostgreSQL connection string |
-
-### Node.js & PostgreSQL Versions
-
-- **Node.js**: 22 (specified in Dockerfiles)
-- **PostgreSQL**: 17 (Alpine image)
-- Match these versions in any new Dockerfiles or dependencies
-
-### API Design
-
-- **Health check**: GET `/health` returns `{ "status": "ok" }`
-- **Error handling**: Minimal; database errors may propagate
-- **Input validation**: POST validates non-empty title; PATCH allows partial updates
-- **Ordering**: GET `/tasks` returns tasks ordered by `created_at ASC`
+Or trigger via GitHub Actions by pushing to `main` or using workflow dispatch.
 
 ## Troubleshooting
 
-### Docker Compose Issues
+### Local Development
+- **Migrate service keeps restarting**: Check database migrations for errors; review logs with `docker compose logs migrate`
+- **API can't connect to database**: Verify `DATABASE_URL` environment variable and that postgres service is healthy
+- **Web can't reach API**: Ensure `API_URL` is set to `http://api:3001` (internal Docker network)
 
-- **"postgres service is unhealthy"**: Wait for health check to pass (up to 25 seconds)
-- **"migrate service keeps restarting"**: Check `DATABASE_URL` and database credentials
-- **"API cannot connect to database"**: Ensure `postgres` service is healthy before `api` starts
+### GCP Deployment
+- **Cloud Run services failing to start**: Check startup probe configuration and container logs
+- **Database connection errors**: Verify VPC Access Connector is configured and service account has `cloudsql.client` role
+- **Migrations not running**: Ensure migration job has access to database URL secret and VPC connectivity
 
-### Terraform Issues
-
-- **"Error: Error creating Cloud SQL instance"**: Ensure VPC peering is configured correctly
-- **"Error: Error creating Cloud Run service"**: Check that container image exists in GCR
-- **"Error: Error acquiring the state lock"**: Another Terraform operation is in progress
-
-### Application Issues
-
-- **"Cannot fetch tasks"**: Verify API is running and database migrations have completed
-- **"API returns 404 for task"**: Check that task ID exists in database
-- **"Web frontend shows blank page"**: Check browser console for API URL errors
-
-## References
-
-- [Next.js Documentation](https://nextjs.org/docs)
-- [Express.js Documentation](https://expressjs.com/)
-- [node-pg-migrate Documentation](https://salsita.github.io/node-pg-migrate/)
-- [Terraform Google Provider](https://registry.terraform.io/providers/hashicorp/google/latest/docs)
-- [Cloud Run Documentation](https://cloud.google.com/run/docs)
-- [Cloud SQL Documentation](https://cloud.google.com/sql/docs)
