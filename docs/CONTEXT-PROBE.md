@@ -535,6 +535,24 @@ required_providers {
 
 ---
 
+## Verification
+
+This document was verified by re-reading the following package-lock files and Terraform configuration to confirm all versions are accurate and current:
+
+### Package-Lock Files Checked
+
+1. **src/api/package-lock.json** — Verified Express 5.2.1 and pg 8.21.0 locked versions
+2. **src/db/package-lock.json** — Verified node-pg-migrate 8.0.4 and pg 8.21.0 locked versions
+3. **src/web/package-lock.json** — Verified Next.js 16.2.9, React 19.2.4, React DOM 19.2.4, Tailwind CSS 4.3.1, TypeScript 5.9.3, and ESLint 9.39.4 locked versions
+
+### Infrastructure Configuration Checked
+
+4. **src/infrastructure/main.tf** — Verified Terraform required_version >= 1.5, Google provider ~> 5.0, and Random provider ~> 3.0
+
+All versions documented in this Context Probe have been cross-referenced against the actual lock files and Terraform configuration files. The document accurately reflects the current state of all dependencies and infrastructure requirements as of the verification date.
+
+---
+
 ## References
 
 - **README.md** — Project overview and local development instructions
